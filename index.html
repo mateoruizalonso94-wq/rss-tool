@@ -338,43 +338,42 @@ async function fetchWithProxy(url) {
 
 async function fetchRSS(url) {
   log('Fetching RSS: '+url,'info');
-
-  // Google Alerts feeds need to be converted to use the public feed proxy
-  // Replace google.com/alerts/feeds with a publicly accessible version
-  let fetchUrl = url;
-  if (url.includes('google.com/alerts/feeds')) {
-    // Use rss2json service which handles Google Alerts reliably
-    const rss2jsonUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(url)}`;
-    log('Detected Google Alerts feed — using rss2json service…', 'info');
-    try {
-      const r = await fetch(rss2jsonUrl);
-      const j = await r.json();
-      if (j.status === 'ok' && j.items) {
-        log(`Found ${j.items.length} items`, 'ok');
-        return j.items.map(item => ({
-          guid:  item.guid || item.link || crypto.randomUUID(),
-          title: item.title || 'Untitled',
-          link:  item.link  || '',
-          date:  item.pubDate || ''
-        }));
-      } else {
-        throw new Error(j.message || 'rss2json returned no items');
-      }
-    } catch(e) {
-      log('rss2json failed: ' + e.message + ' — trying proxies…', 'warn');
-    }
-  }
-
-  const xmlText = await fetchWithProxy(fetchUrl);
+  const xmlText = await fetchWithProxy(url);
   const x = new DOMParser().parseFromString(xmlText,'text/xml');
+
+  // Support both RSS (item) and Atom (entry) formats
   const items = [...x.querySelectorAll('item,entry')];
   log(`Found ${items.length} items`,'ok');
-  return items.map(el=>({
-    guid:  el.querySelector('guid,id')?.textContent?.trim() || el.querySelector('link')?.textContent?.trim() || crypto.randomUUID(),
-    title: el.querySelector('title')?.textContent?.trim() || 'Untitled',
-    link:  el.querySelector('link')?.textContent?.trim() || el.querySelector('link')?.getAttribute('href') || '',
-    date:  el.querySelector('pubDate,published,updated')?.textContent?.trim() || ''
-  }));
+
+  return items.map(el => {
+    // Title — strip HTML entities
+    const title = el.querySelector('title')?.textContent?.trim() || 'Untitled';
+
+    // Link — Atom uses <link href="..."/>, RSS uses <link>url</link>
+    let link = '';
+    const linkEl = el.querySelector('link');
+    if (linkEl) {
+      link = linkEl.getAttribute('href') || linkEl.textContent?.trim() || '';
+    }
+    // Google Alerts wraps the real URL in a redirect — extract original URL
+    if (link.includes('google.com/url?q=')) {
+      try {
+        const urlParams = new URL(link);
+        link = urlParams.searchParams.get('q') || link;
+      } catch {}
+    }
+
+    // ID / GUID
+    const guid = el.querySelector('id')?.textContent?.trim()
+              || el.querySelector('guid')?.textContent?.trim()
+              || link
+              || crypto.randomUUID();
+
+    // Date
+    const date = el.querySelector('published,updated,pubDate')?.textContent?.trim() || '';
+
+    return { guid, title, link, date };
+  });
 }
 
 async function fetchOnly() {
