@@ -226,7 +226,11 @@
 <script>
 let articles = [];
 let gToken   = null;
-const CORS   = 'https://api.allorigins.win/get?url=';
+const PROXIES = [
+  url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+  url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+];
 const CFG    = 'rss_cfg';
 const SEEN   = 'rss_seen';
 const LRUN   = 'rss_lrun';
@@ -312,11 +316,57 @@ function clearLastRun() {
 }
 
 // ── RSS ───────────────────────────────────────────────────────────────────────
+async function fetchWithProxy(url) {
+  for (let i = 0; i < PROXIES.length; i++) {
+    try {
+      log(`Trying proxy ${i+1}/${PROXIES.length}…`, 'info');
+      const r = await fetch(PROXIES[i](url));
+      if (!r.ok) continue;
+      const text = await r.text();
+      // allorigins wraps in JSON, others return raw XML
+      try {
+        const j = JSON.parse(text);
+        if (j.contents) return j.contents;
+      } catch {}
+      return text;
+    } catch (e) {
+      log(`Proxy ${i+1} failed: ${e.message}`, 'warn');
+    }
+  }
+  throw new Error('All proxies failed — check your RSS URL or try again later');
+}
+
 async function fetchRSS(url) {
   log('Fetching RSS: '+url,'info');
-  const r = await fetch(CORS+encodeURIComponent(url));
-  const j = await r.json();
-  const x = new DOMParser().parseFromString(j.contents,'text/xml');
+
+  // Google Alerts feeds need to be converted to use the public feed proxy
+  // Replace google.com/alerts/feeds with a publicly accessible version
+  let fetchUrl = url;
+  if (url.includes('google.com/alerts/feeds')) {
+    // Use rss2json service which handles Google Alerts reliably
+    const rss2jsonUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(url)}`;
+    log('Detected Google Alerts feed — using rss2json service…', 'info');
+    try {
+      const r = await fetch(rss2jsonUrl);
+      const j = await r.json();
+      if (j.status === 'ok' && j.items) {
+        log(`Found ${j.items.length} items`, 'ok');
+        return j.items.map(item => ({
+          guid:  item.guid || item.link || crypto.randomUUID(),
+          title: item.title || 'Untitled',
+          link:  item.link  || '',
+          date:  item.pubDate || ''
+        }));
+      } else {
+        throw new Error(j.message || 'rss2json returned no items');
+      }
+    } catch(e) {
+      log('rss2json failed: ' + e.message + ' — trying proxies…', 'warn');
+    }
+  }
+
+  const xmlText = await fetchWithProxy(fetchUrl);
+  const x = new DOMParser().parseFromString(xmlText,'text/xml');
   const items = [...x.querySelectorAll('item,entry')];
   log(`Found ${items.length} items`,'ok');
   return items.map(el=>({
@@ -369,9 +419,8 @@ async function askClaude(art, apiKey, defQ) {
   const question = art.customQ?.trim() || defQ || 'Summarize this article in 3 concise bullet points highlighting the key insights.';
   let content = `Title: ${art.title}\nURL: ${art.link}`;
   try {
-    const r = await fetch(CORS+encodeURIComponent(art.link));
-    const j = await r.json();
-    const d = document.createElement('div'); d.innerHTML = j.contents;
+    const html = await fetchWithProxy(art.link);
+    const d = document.createElement('div'); d.innerHTML = html;
     content = d.innerText.slice(0,4500);
   } catch {}
   const res = await fetch('https://api.anthropic.com/v1/messages',{
