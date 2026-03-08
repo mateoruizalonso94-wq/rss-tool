@@ -226,11 +226,7 @@
 <script>
 let articles = [];
 let gToken   = null;
-const PROXIES = [
-  url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
-  url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-  url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-];
+// rss2json handles Google Alerts and CORS-blocked feeds
 const CFG    = 'rss_cfg';
 const SEEN   = 'rss_seen';
 const LRUN   = 'rss_lrun';
@@ -316,63 +312,25 @@ function clearLastRun() {
 }
 
 // ── RSS ───────────────────────────────────────────────────────────────────────
-async function fetchWithProxy(url) {
-  for (let i = 0; i < PROXIES.length; i++) {
-    try {
-      log(`Trying proxy ${i+1}/${PROXIES.length}…`, 'info');
-      const r = await fetch(PROXIES[i](url));
-      if (!r.ok) continue;
-      const text = await r.text();
-      // allorigins wraps in JSON, others return raw XML
-      try {
-        const j = JSON.parse(text);
-        if (j.contents) return j.contents;
-      } catch {}
-      return text;
-    } catch (e) {
-      log(`Proxy ${i+1} failed: ${e.message}`, 'warn');
-    }
-  }
-  throw new Error('All proxies failed — check your RSS URL or try again later');
-}
-
 async function fetchRSS(url) {
-  log('Fetching RSS: '+url,'info');
-  const xmlText = await fetchWithProxy(url);
-  const x = new DOMParser().parseFromString(xmlText,'text/xml');
-
-  // Support both RSS (item) and Atom (entry) formats
-  const items = [...x.querySelectorAll('item,entry')];
-  log(`Found ${items.length} items`,'ok');
-
-  return items.map(el => {
-    // Title — strip HTML entities
-    const title = el.querySelector('title')?.textContent?.trim() || 'Untitled';
-
-    // Link — Atom uses <link href="..."/>, RSS uses <link>url</link>
-    let link = '';
-    const linkEl = el.querySelector('link');
-    if (linkEl) {
-      link = linkEl.getAttribute('href') || linkEl.textContent?.trim() || '';
-    }
-    // Google Alerts wraps the real URL in a redirect — extract original URL
+  log('Fetching feed via rss2json…','info');
+  const endpoint = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(url)}&count=50`;
+  const r = await fetch(endpoint);
+  if (!r.ok) throw new Error(`rss2json HTTP ${r.status}`);
+  const j = await r.json();
+  if (j.status !== 'ok') throw new Error(j.message || 'rss2json error: ' + j.status);
+  log(`Found ${j.items.length} items`,'ok');
+  return j.items.map(item => {
+    let link = item.link || item.guid || '';
     if (link.includes('google.com/url?q=')) {
-      try {
-        const urlParams = new URL(link);
-        link = urlParams.searchParams.get('q') || link;
-      } catch {}
+      try { link = new URL(link).searchParams.get('q') || link; } catch {}
     }
-
-    // ID / GUID
-    const guid = el.querySelector('id')?.textContent?.trim()
-              || el.querySelector('guid')?.textContent?.trim()
-              || link
-              || crypto.randomUUID();
-
-    // Date
-    const date = el.querySelector('published,updated,pubDate')?.textContent?.trim() || '';
-
-    return { guid, title, link, date };
+    return {
+      guid:  item.guid  || link || crypto.randomUUID(),
+      title: item.title || 'Untitled',
+      link,
+      date:  item.pubDate || ''
+    };
   });
 }
 
@@ -418,8 +376,10 @@ async function askClaude(art, apiKey, defQ) {
   const question = art.customQ?.trim() || defQ || 'Summarize this article in 3 concise bullet points highlighting the key insights.';
   let content = `Title: ${art.title}\nURL: ${art.link}`;
   try {
-    const html = await fetchWithProxy(art.link);
-    const d = document.createElement('div'); d.innerHTML = html;
+    const pr = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(art.link)}`);
+    const pj = await pr.json();
+    const d = document.createElement('div');
+    d.innerHTML = pj.contents || '';
     content = d.innerText.slice(0,4500);
   } catch {}
   const res = await fetch('https://api.anthropic.com/v1/messages',{
