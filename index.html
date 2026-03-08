@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>RSS → AI → Google Docs</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:ital,wght@0,300;0,600;1,300&display=swap');
+
+  :root {
+    --bg: #0e0f11;
+    --surface: #16181c;
+    --border: #2a2d35;
+    --accent: #c8f04a;
+    --accent2: #4af0b0;
+    --text: #e8eaf0;
+    --muted: #6b7080;
+    --danger: #f04a6a;
+    --warn: #f0b04a;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'DM Mono', monospace; min-height: 100vh; padding: 2rem; }
+
+  header { display: flex; align-items: flex-end; gap: 1.5rem; margin-bottom: 2.5rem; border-bottom: 1px solid var(--border); padding-bottom: 1.5rem; }
+  header h1 { font-family: 'Fraunces', serif; font-weight: 300; font-size: 2.2rem; line-height: 1; color: var(--accent); }
+  header h1 span { color: var(--accent2); font-style: italic; }
+  header p { font-size: 0.72rem; color: var(--muted); line-height: 1.6; max-width: 420px; }
+
+  .accordion { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; margin-bottom: 1.5rem; }
+  .acc-head { display: flex; align-items: center; justify-content: space-between; padding: 0.9rem 1.2rem; cursor: pointer; user-select: none; }
+  .acc-head:hover { background: rgba(255,255,255,0.015); }
+  .acc-title { font-size: 0.67rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent2); }
+  .acc-toggle { font-size: 0.67rem; color: var(--muted); }
+  .acc-body { display: none; border-top: 1px solid var(--border); padding: 1.2rem; }
+  .acc-body.open { display: block; }
+  .steps { display: flex; flex-direction: column; gap: 1rem; }
+  .step { display: flex; gap: 0.9rem; }
+  .step-n { width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0; background: rgba(200,240,74,0.1); border: 1px solid var(--accent); color: var(--accent); font-size: 0.62rem; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
+  .step-c { font-size: 0.73rem; color: var(--muted); line-height: 1.65; }
+  .step-c strong { color: var(--text); }
+  .step-c code { background: var(--bg); border: 1px solid var(--border); border-radius: 2px; padding: 0.08rem 0.4rem; font-size: 0.69rem; color: var(--accent2); }
+  .step-c a { color: var(--accent); text-decoration: none; }
+  .step-c a:hover { text-decoration: underline; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.5rem; }
+  @media (max-width: 780px) { .grid { grid-template-columns: 1fr; } }
+  .full { grid-column: 1 / -1; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 1.1rem; }
+  .card label { display: block; font-size: 0.62rem; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 0.45rem; }
+  .card input, .card textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; color: var(--text); font-family: 'DM Mono', monospace; font-size: 0.78rem; padding: 0.55rem 0.7rem; outline: none; transition: border-color 0.2s; }
+  .card input:focus, .card textarea:focus { border-color: var(--accent); }
+  .card textarea { resize: vertical; min-height: 70px; }
+  .hint { margin-top: 0.4rem; font-size: 0.62rem; color: var(--muted); line-height: 1.5; }
+  .hint strong { color: var(--accent); }
+
+  .auth-bar { display: flex; gap: 1rem; align-items: flex-end; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 1.1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+  .auth-status { flex: 1; min-width: 200px; }
+  .auth-status label { display: block; font-size: 0.62rem; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 0.4rem; }
+  .auth-status p { font-size: 0.72rem; color: var(--muted); }
+  .auth-status p.ok { color: var(--accent2); }
+  .auth-btns { display: flex; gap: 0.6rem; align-items: center; flex-shrink: 0; }
+  .pill { display: none; align-items: center; gap: 0.4rem; font-size: 0.63rem; color: var(--accent2); background: rgba(74,240,176,0.08); border: 1px solid var(--accent2); border-radius: 20px; padding: 0.28rem 0.7rem; }
+
+  .btn { display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.58rem 1.1rem; border: none; border-radius: 3px; font-family: 'DM Mono', monospace; font-size: 0.74rem; font-weight: 500; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+  .btn-primary { background: var(--accent); color: #0e0f11; }
+  .btn-primary:hover { background: #d9ff55; transform: translateY(-1px); }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+  .btn-outline { background: transparent; color: var(--accent2); border: 1px solid var(--accent2); }
+  .btn-outline:hover { background: rgba(74,240,176,0.08); }
+  .btn-google { background: #fff; color: #333; border: 1px solid #ddd; }
+  .btn-google:hover { background: #f5f5f5; }
+  .btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+  .btn-danger:hover { background: rgba(240,74,106,0.08); }
+
+  .actions { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; margin-bottom: 1.5rem; }
+  #lastRunLabel { font-size: 0.63rem; color: var(--muted); margin-left: auto; }
+
+  .progress-bar { height: 2px; background: var(--border); border-radius: 1px; margin-bottom: 1.25rem; overflow: hidden; display: none; }
+  .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width 0.3s; }
+
+  .status-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 0.7rem 1rem; font-size: 0.71rem; color: var(--muted); margin-bottom: 1.25rem; display: flex; align-items: center; gap: 0.7rem; min-height: 2.4rem; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .dot.active { background: var(--accent); animation: pulse 1s infinite; }
+  .dot.success { background: var(--accent2); }
+  .dot.error { background: var(--danger); }
+  @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.3} }
+
+  .log { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 0.85rem 1rem; font-size: 0.68rem; line-height: 1.85; max-height: 155px; overflow-y: auto; margin-bottom: 1.5rem; }
+  .log-line { display: flex; gap: 0.7rem; }
+  .log-time { color: var(--border); flex-shrink: 0; }
+  .log-line.ok .log-msg { color: var(--accent2); }
+  .log-line.warn .log-msg { color: var(--warn); }
+  .log-line.err .log-msg { color: var(--danger); }
+  .log-line.info .log-msg { color: var(--text); }
+
+  .section-label { font-size: 0.62rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.85rem; display: flex; align-items: center; gap: 0.5rem; }
+  .section-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  .articles { display: flex; flex-direction: column; gap: 0.9rem; }
+  .article-card { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 1.1rem; transition: border-color 0.2s; }
+  .article-card.done { border-color: var(--accent2); }
+  .article-card.errored { border-color: var(--danger); }
+  .article-card.queued { border-color: rgba(240,176,74,0.35); }
+  .art-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 0.4rem; }
+  .art-title { font-family: 'Fraunces', serif; font-weight: 600; font-size: 0.93rem; line-height: 1.3; }
+  .art-title a { color: var(--text); text-decoration: none; }
+  .art-title a:hover { color: var(--accent); }
+  .art-meta { font-size: 0.63rem; color: var(--muted); margin-bottom: 0.6rem; }
+  .art-meta a { color: var(--muted); text-decoration: none; }
+
+  .badge { font-size: 0.58rem; padding: 0.18rem 0.48rem; border-radius: 2px; letter-spacing: 0.08em; text-transform: uppercase; flex-shrink: 0; }
+  .b-new    { background: rgba(200,240,74,0.1);  color: var(--accent);  border: 1px solid var(--accent); }
+  .b-done   { background: rgba(74,240,176,0.1);  color: var(--accent2); border: 1px solid var(--accent2); }
+  .b-error  { background: rgba(240,74,106,0.1);  color: var(--danger);  border: 1px solid var(--danger); }
+  .b-active { background: rgba(240,176,74,0.1);  color: var(--warn);    border: 1px solid var(--warn); }
+  .b-seen   { background: transparent; color: var(--border); border: 1px solid var(--border); }
+
+  .q-field { margin-top: 0.7rem; }
+  .q-field label { display: block; font-size: 0.6rem; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 0.3rem; }
+  .q-field input { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; color: var(--text); font-family: 'DM Mono', monospace; font-size: 0.74rem; padding: 0.48rem 0.65rem; outline: none; transition: border-color 0.2s; }
+  .q-field input:focus { border-color: var(--accent); }
+
+  .answer-block { margin-top: 0.8rem; padding: 0.75rem 1rem; background: var(--bg); border-left: 2px solid var(--accent2); border-radius: 0 3px 3px 0; font-size: 0.74rem; line-height: 1.75; color: #b0b5c2; }
+  .answer-q { font-size: 0.61rem; color: var(--accent); margin-bottom: 0.35rem; letter-spacing: 0.04em; }
+
+  .empty-state { text-align: center; padding: 3rem; color: var(--muted); font-size: 0.74rem; background: var(--surface); border: 1px dashed var(--border); border-radius: 4px; }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>RSS → AI → <span>Docs</span></h1>
+  </div>
+  <p>Fetch new articles from an RSS feed, ask a specific question about each one using Claude AI, and push the answers straight into Google Docs.</p>
+</header>
+
+<!-- Setup Guide -->
+<div class="accordion">
+  <div class="acc-head" onclick="toggleAcc()">
+    <span class="acc-title">☁️ One-time Google Cloud Setup — click to expand</span>
+    <span class="acc-toggle" id="accTgl">▼</span>
+  </div>
+  <div class="acc-body" id="accBody">
+    <div class="steps">
+      <div class="step"><div class="step-n">1</div><div class="step-c">Go to <a href="https://console.cloud.google.com" target="_blank">console.cloud.google.com</a> → create or select a project.</div></div>
+      <div class="step"><div class="step-n">2</div><div class="step-c">Go to <strong>APIs & Services → Library</strong> → search for <strong>Google Docs API</strong> → Enable it.</div></div>
+      <div class="step"><div class="step-n">3</div><div class="step-c">Go to <strong>APIs & Services → OAuth consent screen</strong> → choose <strong>External</strong> → fill in app name → add your Google account as a <strong>Test user</strong>.</div></div>
+      <div class="step"><div class="step-n">4</div><div class="step-c">Go to <strong>APIs & Services → Credentials → Create Credentials → OAuth 2.0 Client ID</strong>.<br>Choose <strong>Web application</strong>. Under <strong>Authorized JavaScript origins</strong> add the exact URL where this tool is running (e.g. <code>http://localhost:8080</code> or your hosted URL — no trailing slash).</div></div>
+      <div class="step"><div class="step-n">5</div><div class="step-c">Copy the <strong>Client ID</strong> (ends with <code>.apps.googleusercontent.com</code>) and paste it in the field below.</div></div>
+      <div class="step"><div class="step-n">6</div><div class="step-c">Click <strong>Connect Google Docs</strong> → a Google login popup will appear → authorize → you're done. Token is stored in this browser session only.</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Config -->
+<div class="grid">
+  <div class="card">
+    <label>RSS Feed URL</label>
+    <input type="url" id="rssUrl" placeholder="https://example.com/feed.xml" />
+  </div>
+  <div class="card">
+    <label>Claude API Key</label>
+    <input type="password" id="apiKey" placeholder="sk-ant-..." />
+  </div>
+  <div class="card full">
+    <label>Default Question — asked for every article</label>
+    <textarea id="defaultQ" placeholder="e.g. What are the main risks mentioned in this article? / What is the author's key argument?"></textarea>
+    <div class="hint">💡 After fetching you can set a <strong>custom question per article</strong> — leave blank to use this default.</div>
+  </div>
+  <div class="card">
+    <label>Google Doc ID</label>
+    <input type="text" id="docId" placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms" />
+    <div class="hint">From the Doc URL: …/document/d/<strong>THIS_PART</strong>/edit</div>
+  </div>
+  <div class="card">
+    <label>Google OAuth Client ID</label>
+    <input type="text" id="clientId" placeholder="123456789-abc.apps.googleusercontent.com" />
+  </div>
+</div>
+
+<!-- Auth bar -->
+<div class="auth-bar">
+  <div class="auth-status">
+    <label>Google Docs Authorization</label>
+    <p id="authTxt">Not connected — enter your Client ID above, then click Connect.</p>
+  </div>
+  <div class="auth-btns">
+    <div class="pill" id="pill">✓ Connected</div>
+    <button class="btn btn-google" onclick="connectGoogle()">
+      <svg width="15" height="15" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+      Connect Google Docs
+    </button>
+    <button class="btn btn-danger" id="discBtn" onclick="disconnect()" style="display:none">Disconnect</button>
+  </div>
+</div>
+
+<!-- Actions -->
+<div class="actions">
+  <button class="btn btn-primary" id="runBtn" onclick="runPipeline()">▶ Run Pipeline</button>
+  <button class="btn btn-outline" onclick="fetchOnly()">📡 Fetch RSS Only</button>
+  <button class="btn btn-danger" onclick="clearLastRun()">↺ Reset "Last Run"</button>
+  <span id="lastRunLabel"></span>
+</div>
+
+<!-- Progress -->
+<div class="progress-bar" id="progressBar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+
+<!-- Status -->
+<div class="status-bar"><div class="dot" id="dot"></div><span id="statusMsg">Ready — fill in config and click Run Pipeline</span></div>
+
+<!-- Log -->
+<div class="log" id="logEl"></div>
+
+<!-- Articles -->
+<div class="section-label">Articles</div>
+<div class="articles" id="articlesEl">
+  <div class="empty-state">No articles loaded yet.<br>Click <strong>Fetch RSS Only</strong> to preview new articles, or <strong>Run Pipeline</strong> to process everything at once.</div>
+</div>
+
+<script>
+let articles = [];
+let gToken   = null;
+const CORS   = 'https://api.allorigins.win/get?url=';
+const CFG    = 'rss_cfg';
+const SEEN   = 'rss_seen';
+const LRUN   = 'rss_lrun';
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+window.onload = () => {
+  loadCfg();
+  updateLRLabel();
+  // Recover OAuth token from URL hash after redirect
+  const hash = window.location.hash;
+  if (hash.includes('access_token')) {
+    const p = new URLSearchParams(hash.slice(1));
+    const t = p.get('access_token');
+    if (t) { gToken = t; sessionStorage.setItem('gt', t); setConnected(true); log('Google authorization successful ✓', 'ok'); }
+    history.replaceState(null,'',location.pathname);
+  } else {
+    const t = sessionStorage.getItem('gt');
+    if (t) { gToken = t; setConnected(true); }
+  }
+};
+
+function loadCfg() {
+  try {
+    const c = JSON.parse(localStorage.getItem(CFG)||'{}');
+    if (c.rssUrl)   getElementById('rssUrl').value   = c.rssUrl;
+    if (c.apiKey)   getElementById('apiKey').value   = c.apiKey;
+    if (c.defaultQ) getElementById('defaultQ').value = c.defaultQ;
+    if (c.docId)    getElementById('docId').value    = c.docId;
+    if (c.clientId) getElementById('clientId').value = c.clientId;
+  } catch {}
+}
+function saveCfg() {
+  localStorage.setItem(CFG, JSON.stringify({
+    rssUrl:   v('rssUrl'), apiKey: v('apiKey'), defaultQ: v('defaultQ'),
+    docId:    v('docId'), clientId: v('clientId')
+  }));
+}
+const v   = id => getElementById(id).value.trim();
+const $ = id => document.getElementById(id);
+function getElementById(id){ return document.getElementById(id); }
+
+// ── Accordion ─────────────────────────────────────────────────────────────────
+function toggleAcc() {
+  const b = $('accBody'), t = $('accTgl');
+  const o = b.classList.toggle('open');
+  t.textContent = o ? '▲' : '▼';
+}
+
+// ── Log / Status ──────────────────────────────────────────────────────────────
+function log(msg, type='info') {
+  const el = $('logEl'), now = new Date().toLocaleTimeString();
+  el.innerHTML += `<div class="log-line ${type}"><span class="log-time">${now}</span><span class="log-msg">${msg}</span></div>`;
+  el.scrollTop = el.scrollHeight;
+}
+function status(msg, type='idle') {
+  $('statusMsg').textContent = msg;
+  $('dot').className = 'dot' + ({active:' active',success:' success',error:' error'}[type]||'');
+}
+function progress(pct) {
+  $('progressBar').style.display = pct>0?'block':'none';
+  $('progressFill').style.width = pct+'%';
+}
+
+// ── Last run ──────────────────────────────────────────────────────────────────
+function updateLRLabel() {
+  const ts = localStorage.getItem(LRUN);
+  $('lastRunLabel').textContent = ts ? `Last run: ${new Date(ts).toLocaleString()}` : 'Never run';
+}
+function getSeenGuids() {
+  try { return new Set(JSON.parse(localStorage.getItem(SEEN)||'[]')); } catch { return new Set(); }
+}
+function markSeen(guids) {
+  const s = getSeenGuids(); guids.forEach(g=>s.add(g));
+  localStorage.setItem(SEEN, JSON.stringify([...s]));
+  localStorage.setItem(LRUN, new Date().toISOString());
+  updateLRLabel();
+}
+function clearLastRun() {
+  localStorage.removeItem(LRUN); localStorage.removeItem(SEEN);
+  articles = []; render(); updateLRLabel();
+  log('Reset — next run will process all feed articles','warn');
+  status('Reset done');
+}
+
+// ── RSS ───────────────────────────────────────────────────────────────────────
+async function fetchRSS(url) {
+  log('Fetching RSS: '+url,'info');
+  const r = await fetch(CORS+encodeURIComponent(url));
+  const j = await r.json();
+  const x = new DOMParser().parseFromString(j.contents,'text/xml');
+  const items = [...x.querySelectorAll('item,entry')];
+  log(`Found ${items.length} items`,'ok');
+  return items.map(el=>({
+    guid:  el.querySelector('guid,id')?.textContent?.trim() || el.querySelector('link')?.textContent?.trim() || crypto.randomUUID(),
+    title: el.querySelector('title')?.textContent?.trim() || 'Untitled',
+    link:  el.querySelector('link')?.textContent?.trim() || el.querySelector('link')?.getAttribute('href') || '',
+    date:  el.querySelector('pubDate,published,updated')?.textContent?.trim() || ''
+  }));
+}
+
+async function fetchOnly() {
+  saveCfg();
+  if (!v('rssUrl')) { alert('Enter an RSS Feed URL first.'); return; }
+  status('Fetching RSS…','active');
+  try {
+    const raw  = await fetchRSS(v('rssUrl'));
+    const seen = getSeenGuids();
+    articles   = raw.map(a=>({...a, isNew:!seen.has(a.guid), status:'idle', summary:null, questionUsed:'', customQ:''}));
+    render();
+    const n = articles.filter(a=>a.isNew).length;
+    status(`Fetched ${articles.length} articles — ${n} new`,'success');
+    log(n ? `${n} new articles ready. Set per-article questions if needed, then Run Pipeline.` : 'No new articles since last run.', n?'ok':'warn');
+  } catch(e) { log('RSS error: '+e.message,'err'); status('RSS fetch failed','error'); }
+}
+
+// ── Google OAuth ──────────────────────────────────────────────────────────────
+function connectGoogle() {
+  saveCfg();
+  const cid = v('clientId');
+  if (!cid) { alert('Enter your Google OAuth Client ID first.'); return; }
+  const redirect = location.href.split('#')[0];
+  location.href = `https://accounts.google.com/o/oauth2/v2/auth`+
+    `?client_id=${encodeURIComponent(cid)}`+
+    `&redirect_uri=${encodeURIComponent(redirect)}`+
+    `&response_type=token`+
+    `&scope=${encodeURIComponent('https://www.googleapis.com/auth/documents')}`;
+}
+function disconnect() {
+  gToken=null; sessionStorage.removeItem('gt'); setConnected(false); log('Disconnected','warn');
+}
+function setConnected(yes) {
+  $('pill').style.display   = yes?'flex':'none';
+  $('discBtn').style.display= yes?'inline-flex':'none';
+  $('authTxt').textContent  = yes?'Connected — Google Docs access granted for this session.':'Not connected — enter your Client ID above, then click Connect.';
+  $('authTxt').className    = yes?'ok':'';
+}
+
+// ── Claude ────────────────────────────────────────────────────────────────────
+async function askClaude(art, apiKey, defQ) {
+  const question = art.customQ?.trim() || defQ || 'Summarize this article in 3 concise bullet points highlighting the key insights.';
+  let content = `Title: ${art.title}\nURL: ${art.link}`;
+  try {
+    const r = await fetch(CORS+encodeURIComponent(art.link));
+    const j = await r.json();
+    const d = document.createElement('div'); d.innerHTML = j.contents;
+    content = d.innerText.slice(0,4500);
+  } catch {}
+  const res = await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      model:'claude-sonnet-4-20250514', max_tokens:1000,
+      messages:[{role:'user',content:`You are analyzing a web article. Answer the following question:\n\n"${question}"\n\nArticle Title: ${art.title}\nURL: ${art.link}\n\nContent:\n${content}`}]
+    })
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message);
+  return { answer: data.content.map(b=>b.text||'').join(''), question };
+}
+
+// ── Google Docs API ───────────────────────────────────────────────────────────
+async function writeToDoc(docId, art, question, answer) {
+  const g = await fetch(`https://docs.googleapis.com/v1/documents/${docId}`,
+    {headers:{Authorization:`Bearer ${gToken}`}});
+  const doc = await g.json();
+  if (doc.error) throw new Error('Docs API: '+doc.error.message);
+
+  const end     = doc.body.content.at(-1).endIndex - 1;
+  const dateStr = art.date ? new Date(art.date).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}) : '';
+  const meta    = [dateStr, art.link].filter(Boolean).join('  |  ');
+  const text    = `\n${art.title}\n${meta}\nQ: ${question}\n${answer}\n\n`;
+
+  const titleStart = end + 1;
+  const titleEnd   = titleStart + art.title.length + 1;
+  const qStart     = titleEnd + meta.length + 1;
+  const qEnd       = qStart + ('Q: '+question).length + 1;
+
+  const res = await fetch(`https://docs.googleapis.com/v1/documents/${docId}:batchUpdate`,{
+    method:'POST',
+    headers:{Authorization:`Bearer ${gToken}`,'Content-Type':'application/json'},
+    body: JSON.stringify({requests:[
+      {insertText:{location:{index:end},text}},
+      {updateParagraphStyle:{range:{startIndex:titleStart,endIndex:titleEnd},paragraphStyle:{namedStyleType:'HEADING_2'},fields:'namedStyleType'}},
+      {updateTextStyle:{range:{startIndex:qStart,endIndex:qEnd},textStyle:{bold:true},fields:'bold'}}
+    ]})
+  });
+  const r = await res.json();
+  if (r.error) throw new Error('Docs write: '+r.error.message);
+}
+
+// ── Pipeline ──────────────────────────────────────────────────────────────────
+async function runPipeline() {
+  saveCfg();
+  if (!v('rssUrl'))   { alert('Enter an RSS Feed URL.');       return; }
+  if (!v('apiKey'))   { alert('Enter your Claude API key.');   return; }
+  if (!v('docId'))    { alert('Enter your Google Doc ID.');    return; }
+  if (!gToken)        { alert('Connect Google Docs first.');   return; }
+
+  $('runBtn').disabled = true;
+  $('logEl').innerHTML = '';
+
+  try {
+    if (!articles.length) {
+      status('Fetching RSS…','active'); progress(5);
+      const raw  = await fetchRSS(v('rssUrl'));
+      const seen = getSeenGuids();
+      articles   = raw.map(a=>({...a,isNew:!seen.has(a.guid),status:'idle',summary:null,questionUsed:'',customQ:''}));
+      render();
+    }
+
+    const queue = articles.filter(a=>a.isNew);
+    if (!queue.length) { status('No new articles since last run','success'); log('All caught up.','warn'); progress(0); return; }
+
+    log(`Starting pipeline for ${queue.length} article(s)…`,'info');
+    const done = [];
+
+    for (let i=0; i<queue.length; i++) {
+      const art = queue[i];
+      progress(10 + Math.round(i/queue.length*82));
+      status(`[${i+1}/${queue.length}] Asking Claude about: "${art.title.slice(0,45)}…"`,'active');
+      log(`Processing: "${art.title}"`,'info');
+      const idx = articles.findIndex(a=>a.guid===art.guid);
+      if (idx>-1) { articles[idx].status='active'; render(); }
+      try {
+        const {answer,question} = await askClaude(art, v('apiKey'), v('defaultQ'));
+        log('✓ Claude answered','ok');
+        status(`[${i+1}/${queue.length}] Writing to Google Doc…`,'active');
+        await writeToDoc(v('docId'), art, question, answer);
+        log('✓ Written to Google Doc','ok');
+        if (idx>-1) { articles[idx].status='done'; articles[idx].summary=answer; articles[idx].questionUsed=question; }
+        done.push(art.guid);
+      } catch(e) {
+        log(`✗ Failed: ${e.message}`,'err');
+        if (idx>-1) articles[idx].status='errored';
+      }
+      render();
+    }
+
+    markSeen(done);
+    progress(100); setTimeout(()=>progress(0),800);
+    status(`Done! ${done.length}/${queue.length} articles sent to Google Docs ✓`,'success');
+    log(`Pipeline complete — ${done.length} article(s) processed.`,'ok');
+
+  } catch(e) {
+    log('Pipeline error: '+e.message,'err'); status('Pipeline failed — see log','error'); progress(0);
+  } finally {
+    $('runBtn').disabled = false;
+  }
+}
+
+// ── Per-article question ──────────────────────────────────────────────────────
+function setQ(guid, val) {
+  const idx = articles.findIndex(a=>a.guid===guid);
+  if (idx>-1) articles[idx].customQ = val;
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function render() {
+  const el = $('articlesEl');
+  if (!articles.length) { el.innerHTML='<div class="empty-state">No articles loaded yet.</div>'; return; }
+  el.innerHTML = articles.map(a=>{
+    const s = a.status;
+    const bc = s==='done'?'b-done':s==='errored'?'b-error':s==='active'?'b-active':a.isNew?'b-new':'b-seen';
+    const bt = s==='done'?'answered':s==='errored'?'error':s==='active'?'processing…':a.isNew?'new':'seen';
+    const cc = s==='done'?'done':s==='errored'?'errored':a.isNew?'queued':'';
+    const ds = a.date?new Date(a.date).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}):'';
+    const sg = esc(a.guid).replace(/'/g,"\\'");
+    return `<div class="article-card ${cc}">
+      <div class="art-head">
+        <div class="art-title"><a href="${esc(a.link)}" target="_blank">${esc(a.title)}</a></div>
+        <span class="badge ${bc}">${bt}</span>
+      </div>
+      <div class="art-meta">${ds}${ds?' · ':''}<a href="${esc(a.link)}" target="_blank">${esc(a.link.slice(0,70))}${a.link.length>70?'…':''}</a></div>
+      ${a.isNew&&s!=='done'&&s!=='errored'?`
+        <div class="q-field">
+          <label>Custom question for this article <span style="color:var(--border)">(leave blank to use default)</span></label>
+          <input type="text" placeholder="e.g. Does this mention any acquisitions?"
+            value="${esc(a.customQ||'')}"
+            oninput="setQ('${sg}',this.value)"
+            onfocus="this.style.borderColor='var(--accent)'"
+            onblur="this.style.borderColor='var(--border)'"
+          />
+        </div>`:''}
+      ${a.summary?`<div class="answer-block"><div class="answer-q">Q: ${esc(a.questionUsed)}</div>${esc(a.summary).replace(/\n/g,'<br>')}</div>`:''}
+    </div>`;
+  }).join('');
+}
+
+function esc(s=''){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+</script>
+</body>
+</html>
