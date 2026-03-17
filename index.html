@@ -417,13 +417,46 @@ function setConnected(yes) {
 async function askClaude(art, apiKey, defQ) {
   const question = art.customQ?.trim() || defQ || 'Summarize this article in 3 concise bullet points highlighting the key insights.';
   let content = `Title: ${art.title}\nURL: ${art.link}`;
-  try {
-    const pr = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(art.link)}`);
-    const pj = await pr.json();
-    const d = document.createElement('div');
-    d.innerHTML = pj.contents || '';
-    content = d.innerText.slice(0,4500);
-  } catch {}
+  // Try to fetch full article content via multiple proxies
+  log('Fetching full article content…', 'info');
+  const encoded = encodeURIComponent(art.link);
+  const articleProxies = [
+    { url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encoded, type: 'rss2json' },
+    { url: 'https://api.codetabs.com/v1/proxy?quest=' + art.link, type: 'raw' },
+    { url: 'https://thingproxy.freeboard.io/fetch/' + art.link, type: 'raw' },
+    { url: 'https://api.allorigins.win/get?url=' + encoded, type: 'allorigins' },
+  ];
+  for (let i = 0; i < articleProxies.length; i++) {
+    try {
+      const proxy = articleProxies[i];
+      log('Trying article proxy ' + (i+1) + '…', 'info');
+      const pr = await fetch(proxy.url);
+      if (!pr.ok) { log('Proxy ' + (i+1) + ' returned ' + pr.status, 'warn'); continue; }
+      let html = '';
+      if (proxy.type === 'allorigins') {
+        const j = await pr.json();
+        html = j.contents || '';
+      } else if (proxy.type === 'rss2json') {
+        // skip rss2json for article fetching
+        continue;
+      } else {
+        html = await pr.text();
+      }
+      if (!html || html.length < 200) continue;
+      const d = document.createElement('div');
+      d.innerHTML = html;
+      d.querySelectorAll('script,style,nav,footer,header,aside,noscript,iframe,img').forEach(el => el.remove());
+      const text = d.innerText.replace(/\s+/g, ' ').trim().slice(0, 6000);
+      if (text.length > 300) {
+        content = text;
+        log('✓ Fetched full article (' + text.length + ' chars)', 'ok');
+        break;
+      }
+    } catch(e) { log('Article proxy ' + (i+1) + ' failed: ' + e.message, 'warn'); }
+  }
+  if (content === 'Title: ' + art.title + '\nURL: ' + art.link) {
+    log('⚠ Could not fetch full article — Claude will use title + URL only', 'warn');
+  }
   let res;
   try {
     res = await fetch('https://api.anthropic.com/v1/messages',{
