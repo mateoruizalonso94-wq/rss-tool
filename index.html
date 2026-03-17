@@ -417,45 +417,27 @@ function setConnected(yes) {
 async function askClaude(art, apiKey, defQ) {
   const question = art.customQ?.trim() || defQ || 'Summarize this article in 3 concise bullet points highlighting the key insights.';
   let content = `Title: ${art.title}\nURL: ${art.link}`;
-  // Try to fetch full article content via multiple proxies
-  log('Fetching full article content…', 'info');
-  const encoded = encodeURIComponent(art.link);
-  const articleProxies = [
-    { url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encoded, type: 'rss2json' },
-    { url: 'https://api.codetabs.com/v1/proxy?quest=' + art.link, type: 'raw' },
-    { url: 'https://thingproxy.freeboard.io/fetch/' + art.link, type: 'raw' },
-    { url: 'https://api.allorigins.win/get?url=' + encoded, type: 'allorigins' },
-  ];
-  for (let i = 0; i < articleProxies.length; i++) {
-    try {
-      const proxy = articleProxies[i];
-      log('Trying article proxy ' + (i+1) + '…', 'info');
-      const pr = await fetch(proxy.url);
-      if (!pr.ok) { log('Proxy ' + (i+1) + ' returned ' + pr.status, 'warn'); continue; }
-      let html = '';
-      if (proxy.type === 'allorigins') {
-        const j = await pr.json();
-        html = j.contents || '';
-      } else if (proxy.type === 'rss2json') {
-        // skip rss2json for article fetching
-        continue;
-      } else {
-        html = await pr.text();
-      }
-      if (!html || html.length < 200) continue;
-      const d = document.createElement('div');
-      d.innerHTML = html;
-      d.querySelectorAll('script,style,nav,footer,header,aside,noscript,iframe,img').forEach(el => el.remove());
-      const text = d.innerText.replace(/\s+/g, ' ').trim().slice(0, 6000);
+  // Fetch full article content using Jina AI Reader (free, no API key needed)
+  log('Fetching full article via Jina AI Reader…', 'info');
+  try {
+    const jinaUrl = 'https://r.jina.ai/' + art.link;
+    const pr = await fetch(jinaUrl, { headers: { 'Accept': 'text/plain' } });
+    if (pr.ok) {
+      const text = (await pr.text()).trim().slice(0, 8000);
       if (text.length > 300) {
         content = text;
         log('✓ Fetched full article (' + text.length + ' chars)', 'ok');
-        break;
+      } else {
+        log('⚠ Jina returned too little content (' + text.length + ' chars)', 'warn');
       }
-    } catch(e) { log('Article proxy ' + (i+1) + ' failed: ' + e.message, 'warn'); }
+    } else {
+      log('⚠ Jina AI returned ' + pr.status + ' — cannot fetch article', 'warn');
+    }
+  } catch(e) {
+    log('⚠ Could not fetch article: ' + e.message, 'warn');
   }
   if (content === 'Title: ' + art.title + '\nURL: ' + art.link) {
-    log('⚠ Could not fetch full article — Claude will use title + URL only', 'warn');
+    log('⚠ Could not fetch full article — Claude will answer based on title/snippet only', 'warn');
   }
   let res;
   try {
@@ -463,7 +445,15 @@ async function askClaude(art, apiKey, defQ) {
       method:'POST', headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
       body: JSON.stringify({
         model:'claude-sonnet-4-20250514', max_tokens:1000,
-        messages:[{role:'user',content:`You are analyzing a web article. Answer the following question:\n\n"${question}"\n\nArticle Title: ${art.title}\nURL: ${art.link}\n\nContent:\n${content}`}]
+        messages:[{role:'user',content:`You are analyzing a web article. Answer the following question based ONLY on the information provided below — the title, URL, and any article content. Do NOT use any outside knowledge or make assumptions beyond what is explicitly written here. If there is not enough information to answer, say "Not enough information in the article to answer this question."
+
+Question: "${question}"
+
+Article Title: ${art.title}
+URL: ${art.link}
+
+Content:
+${content}`}]
       })
     });
   } catch(fetchErr) {
