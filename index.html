@@ -424,15 +424,20 @@ async function askClaude(art, apiKey, defQ) {
     d.innerHTML = pj.contents || '';
     content = d.innerText.slice(0,4500);
   } catch {}
-  const res = await fetch('https://api.anthropic.com/v1/messages',{
-    method:'POST', headers:{'Content-Type':'application/json','anthropic-dangerous-direct-browser-access':'true'},
-    body: JSON.stringify({
-      model:'claude-sonnet-4-20250514', max_tokens:1000,
-      messages:[{role:'user',content:`You are analyzing a web article. Answer the following question:\n\n"${question}"\n\nArticle Title: ${art.title}\nURL: ${art.link}\n\nContent:\n${content}`}]
-    })
-  });
+  let res;
+  try {
+    res = await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST', headers:{'Content-Type':'application/json','anthropic-dangerous-direct-browser-access':'true'},
+      body: JSON.stringify({
+        model:'claude-sonnet-4-20250514', max_tokens:1000,
+        messages:[{role:'user',content:`You are analyzing a web article. Answer the following question:\n\n"${question}"\n\nArticle Title: ${art.title}\nURL: ${art.link}\n\nContent:\n${content}`}]
+      })
+    });
+  } catch(fetchErr) {
+    throw new Error('Claude API fetch failed: ' + fetchErr.message);
+  }
   const data = await res.json();
-  if (data.error) throw new Error(data.error.message);
+  if (data.error) throw new Error('Claude API error: ' + data.error.message);
   return { answer: data.content.map(b=>b.text||'').join(''), question };
 }
 
@@ -500,15 +505,17 @@ async function runPipeline() {
       const idx = articles.findIndex(a=>a.guid===art.guid);
       if (idx>-1) { articles[idx].status='active'; render(); }
       try {
+        log('Asking Claude…','info');
         const {answer,question} = await askClaude(art, v('apiKey'), v('defaultQ'));
         log('✓ Claude answered','ok');
         status(`[${i+1}/${queue.length}] Writing to Google Doc…`,'active');
+        log('Writing to Google Doc (docId: ' + v('docId').slice(0,12) + '…)','info');
         await writeToDoc(v('docId'), art, question, answer);
         log('✓ Written to Google Doc','ok');
         if (idx>-1) { articles[idx].status='done'; articles[idx].summary=answer; articles[idx].questionUsed=question; }
         done.push(art.guid);
       } catch(e) {
-        log(`✗ Failed: ${e.message}`,'err');
+        log('✗ Failed at step: ' + e.message + ' | stack: ' + (e.stack||'').split('\n')[1],'err');
         if (idx>-1) articles[idx].status='errored';
       }
       render();
