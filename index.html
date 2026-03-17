@@ -333,50 +333,47 @@ function parseXML(xmlText) {
 async function fetchRSS(url) {
   const encoded = encodeURIComponent(url);
 
-  // Method 1: corsproxy.io
+  // rss2json is the most reliable method
   try {
-    log('Trying corsproxy.io…', 'info');
-    const r = await fetch('https://corsproxy.io/?' + encoded);
-    if (r.ok) {
-      const text = await r.text();
-      const items = parseXML(text);
-      if (items.length > 0) { log('Found ' + items.length + ' items', 'ok'); return items; }
-      log('corsproxy.io: 0 items, trying next…', 'warn');
-    }
-  } catch(e) { log('corsproxy.io failed: ' + e.message, 'warn'); }
-
-  // Method 2: allorigins
-  try {
-    log('Trying allorigins…', 'info');
-    const r = await fetch('https://api.allorigins.win/get?url=' + encoded);
-    if (r.ok) {
-      const j = await r.json();
-      const items = parseXML(j.contents || '');
-      if (items.length > 0) { log('Found ' + items.length + ' items', 'ok'); return items; }
-      log('allorigins: 0 items, trying next…', 'warn');
-    }
-  } catch(e) { log('allorigins failed: ' + e.message, 'warn'); }
-
-  // Method 3: rss2json
-  try {
-    log('Trying rss2json…', 'info');
+    log('Fetching via rss2json…', 'info');
     const r = await fetch('https://api.rss2json.com/v1/api.json?rss_url=' + encoded + '&count=50');
-    if (r.ok) {
-      const j = await r.json();
-      if (j.status === 'ok' && j.items && j.items.length > 0) {
-        log('Found ' + j.items.length + ' items', 'ok');
-        return j.items.map(function(item) {
-          var link = item.link || item.guid || '';
-          if (link.includes('google.com/url?q=')) {
-            try { link = new URL(link).searchParams.get('q') || link; } catch(e) {}
-          }
-          return { guid: item.guid || link || crypto.randomUUID(), title: item.title || 'Untitled', link: link, date: item.pubDate || '' };
-        });
-      }
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    if (j.status === 'ok') {
+      log('Found ' + j.items.length + ' items', 'ok');
+      return j.items.map(function(item) {
+        var link = item.link || item.guid || '';
+        if (link.includes('google.com/url?q=')) {
+          try { link = new URL(link).searchParams.get('q') || link; } catch(e) {}
+        }
+        return { guid: item.guid || link || crypto.randomUUID(), title: item.title || 'Untitled', link: link, date: item.pubDate || '' };
+      });
     }
-  } catch(e) { log('rss2json failed: ' + e.message, 'warn'); }
+    // rss2json rejected the URL (e.g. Google Alerts) — fall through to XML proxy
+    log('rss2json could not parse feed, trying XML proxy…', 'warn');
+  } catch(e) { log('rss2json failed: ' + e.message + ', trying XML proxy…', 'warn'); }
 
-  throw new Error('All fetch methods failed. Please check your RSS URL is valid and publicly accessible.');
+  // Fallback: fetch raw XML via a CORS proxy and parse it ourselves
+  // This handles Google Alerts and other feeds rss2json rejects
+  const proxies = [
+    'https://api.codetabs.com/v1/proxy?quest=' + url,
+    'https://thingproxy.freeboard.io/fetch/' + url,
+  ];
+  for (var i = 0; i < proxies.length; i++) {
+    try {
+      log('Trying XML proxy ' + (i+1) + '…', 'info');
+      const r = await fetch(proxies[i]);
+      if (r.ok) {
+        const text = await r.text();
+        const items = parseXML(text);
+        if (items.length > 0) { log('Found ' + items.length + ' items', 'ok'); return items; }
+        log('Proxy returned 0 items', 'warn');
+        return []; // Feed is genuinely empty
+      }
+    } catch(e) { log('Proxy ' + (i+1) + ' failed: ' + e.message, 'warn'); }
+  }
+
+  throw new Error('Could not fetch feed. Check your RSS URL is valid and publicly accessible.');
 }
 
 async function fetchOnly() {
