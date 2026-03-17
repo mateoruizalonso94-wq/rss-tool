@@ -312,26 +312,71 @@ function clearLastRun() {
 }
 
 // ── RSS ───────────────────────────────────────────────────────────────────────
-async function fetchRSS(url) {
-  log('Fetching feed via rss2json…','info');
-  const endpoint = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(url)}&count=50`;
-  const r = await fetch(endpoint);
-  if (!r.ok) throw new Error(`rss2json HTTP ${r.status}`);
-  const j = await r.json();
-  if (j.status !== 'ok') throw new Error(j.message || 'rss2json error: ' + j.status);
-  log(`Found ${j.items.length} items`,'ok');
-  return j.items.map(item => {
-    let link = item.link || item.guid || '';
+function parseXML(xmlText) {
+  const x = new DOMParser().parseFromString(xmlText, 'text/xml');
+  const items = [...x.querySelectorAll('item, entry')];
+  return items.map(el => {
+    const title = el.querySelector('title')?.textContent?.trim() || 'Untitled';
+    const linkEl = el.querySelector('link');
+    let link = linkEl?.getAttribute('href') || linkEl?.textContent?.trim() || '';
     if (link.includes('google.com/url?q=')) {
       try { link = new URL(link).searchParams.get('q') || link; } catch {}
     }
-    return {
-      guid:  item.guid  || link || crypto.randomUUID(),
-      title: item.title || 'Untitled',
-      link,
-      date:  item.pubDate || ''
-    };
+    const guid = el.querySelector('id')?.textContent?.trim()
+              || el.querySelector('guid')?.textContent?.trim()
+              || link || crypto.randomUUID();
+    const date = el.querySelector('published,updated,pubDate')?.textContent?.trim() || '';
+    return { guid, title, link, date };
   });
+}
+
+async function fetchRSS(url) {
+  const encoded = encodeURIComponent(url);
+
+  // Method 1: corsproxy.io
+  try {
+    log('Trying corsproxy.io…', 'info');
+    const r = await fetch('https://corsproxy.io/?' + encoded);
+    if (r.ok) {
+      const text = await r.text();
+      const items = parseXML(text);
+      if (items.length > 0) { log('Found ' + items.length + ' items', 'ok'); return items; }
+      log('corsproxy.io: 0 items, trying next…', 'warn');
+    }
+  } catch(e) { log('corsproxy.io failed: ' + e.message, 'warn'); }
+
+  // Method 2: allorigins
+  try {
+    log('Trying allorigins…', 'info');
+    const r = await fetch('https://api.allorigins.win/get?url=' + encoded);
+    if (r.ok) {
+      const j = await r.json();
+      const items = parseXML(j.contents || '');
+      if (items.length > 0) { log('Found ' + items.length + ' items', 'ok'); return items; }
+      log('allorigins: 0 items, trying next…', 'warn');
+    }
+  } catch(e) { log('allorigins failed: ' + e.message, 'warn'); }
+
+  // Method 3: rss2json
+  try {
+    log('Trying rss2json…', 'info');
+    const r = await fetch('https://api.rss2json.com/v1/api.json?rss_url=' + encoded + '&count=50');
+    if (r.ok) {
+      const j = await r.json();
+      if (j.status === 'ok' && j.items && j.items.length > 0) {
+        log('Found ' + j.items.length + ' items', 'ok');
+        return j.items.map(function(item) {
+          var link = item.link || item.guid || '';
+          if (link.includes('google.com/url?q=')) {
+            try { link = new URL(link).searchParams.get('q') || link; } catch(e) {}
+          }
+          return { guid: item.guid || link || crypto.randomUUID(), title: item.title || 'Untitled', link: link, date: item.pubDate || '' };
+        });
+      }
+    }
+  } catch(e) { log('rss2json failed: ' + e.message, 'warn'); }
+
+  throw new Error('All fetch methods failed. Please check your RSS URL is valid and publicly accessible.');
 }
 
 async function fetchOnly() {
