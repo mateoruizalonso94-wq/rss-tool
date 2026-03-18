@@ -417,24 +417,72 @@ function setConnected(yes) {
 async function askClaude(art, apiKey, defQ) {
   const question = art.customQ?.trim() || defQ || 'Summarize this article in 3 concise bullet points highlighting the key insights.';
   let content = `Title: ${art.title}\nURL: ${art.link}`;
-  // Fetch full article content using Jina AI Reader (free, no API key needed)
-  log('Fetching full article via Jina AI Reader…', 'info');
+  // Fetch full article content — try multiple methods
+  log('Fetching full article content…', 'info');
+
+  // Method 1: Jina AI Reader
   try {
+    log('Trying Jina AI…', 'info');
     const jinaUrl = 'https://r.jina.ai/' + art.link;
     const pr = await fetch(jinaUrl, { headers: { 'Accept': 'text/plain' } });
     if (pr.ok) {
       const text = (await pr.text()).trim().slice(0, 8000);
       if (text.length > 300) {
         content = text;
-        log('✓ Fetched full article (' + text.length + ' chars)', 'ok');
+        log('✓ Jina AI: fetched full article (' + text.length + ' chars)', 'ok');
       } else {
-        log('⚠ Jina returned too little content (' + text.length + ' chars)', 'warn');
+        log('Jina returned too little content, trying next…', 'warn');
       }
     } else {
-      log('⚠ Jina AI returned ' + pr.status + ' — cannot fetch article', 'warn');
+      log('Jina AI returned ' + pr.status + ', trying next…', 'warn');
     }
-  } catch(e) {
-    log('⚠ Could not fetch article: ' + e.message, 'warn');
+  } catch(e) { log('Jina AI failed: ' + e.message + ', trying next…', 'warn'); }
+
+  // Method 2: Google Cache via Jina
+  if (content === 'Title: ' + art.title + '\nURL: ' + art.link) {
+    try {
+      log('Trying Google Cache…', 'info');
+      const cacheUrl = 'https://r.jina.ai/https://webcache.googleusercontent.com/search?q=cache:' + encodeURIComponent(art.link);
+      const pr = await fetch(cacheUrl, { headers: { 'Accept': 'text/plain' } });
+      if (pr.ok) {
+        const text = (await pr.text()).trim().slice(0, 8000);
+        if (text.length > 300) {
+          content = text;
+          log('✓ Google Cache: fetched full article (' + text.length + ' chars)', 'ok');
+        } else {
+          log('Google Cache returned too little content, trying next…', 'warn');
+        }
+      } else {
+        log('Google Cache returned ' + pr.status + ', trying next…', 'warn');
+      }
+    } catch(e) { log('Google Cache failed: ' + e.message + ', trying next…', 'warn'); }
+  }
+
+  // Method 3: Archive.org most recent snapshot
+  if (content === 'Title: ' + art.title + '\nURL: ' + art.link) {
+    try {
+      log('Trying Wayback Machine…', 'info');
+      const waybackApi = 'https://archive.org/wayback/available?url=' + encodeURIComponent(art.link);
+      const apiRes = await fetch(waybackApi);
+      if (apiRes.ok) {
+        const apiData = await apiRes.json();
+        const snapshot = apiData?.archived_snapshots?.closest?.url;
+        if (snapshot) {
+          const pr = await fetch('https://r.jina.ai/' + snapshot, { headers: { 'Accept': 'text/plain' } });
+          if (pr.ok) {
+            const text = (await pr.text()).trim().slice(0, 8000);
+            if (text.length > 300) {
+              content = text;
+              log('✓ Wayback Machine: fetched article (' + text.length + ' chars)', 'ok');
+            } else {
+              log('Wayback Machine returned too little content', 'warn');
+            }
+          }
+        } else {
+          log('No Wayback Machine snapshot found', 'warn');
+        }
+      }
+    } catch(e) { log('Wayback Machine failed: ' + e.message, 'warn'); }
   }
   if (content === 'Title: ' + art.title + '\nURL: ' + art.link) {
     log('⚠ Could not fetch full article — Claude will answer based on title/snippet only', 'warn');
