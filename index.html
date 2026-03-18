@@ -319,8 +319,11 @@ function parseXML(xmlText) {
     const title = el.querySelector('title')?.textContent?.trim() || 'Untitled';
     const linkEl = el.querySelector('link');
     let link = linkEl?.getAttribute('href') || linkEl?.textContent?.trim() || '';
-    if (link.includes('google.com/url?q=')) {
-      try { link = new URL(link).searchParams.get('q') || link; } catch {}
+    if (link.includes('google.com/url')) {
+      try {
+        const u = new URL(link);
+        link = u.searchParams.get('url') || u.searchParams.get('q') || link;
+      } catch {}
     }
     const guid = el.querySelector('id')?.textContent?.trim()
               || el.querySelector('guid')?.textContent?.trim()
@@ -343,8 +346,11 @@ async function fetchRSS(url) {
       log('Found ' + j.items.length + ' items', 'ok');
       return j.items.map(function(item) {
         var link = item.link || item.guid || '';
-        if (link.includes('google.com/url?q=')) {
-          try { link = new URL(link).searchParams.get('q') || link; } catch(e) {}
+        if (link.includes('google.com/url')) {
+          try {
+            const u = new URL(link);
+            link = u.searchParams.get('url') || u.searchParams.get('q') || link;
+          } catch(e) {}
         }
         return { guid: item.guid || link || crypto.randomUUID(), title: item.title || 'Untitled', link: link, date: item.pubDate || '' };
       });
